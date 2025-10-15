@@ -12,7 +12,7 @@
 ## Introduction
 
 This python library lets you control XY Screens and See Max projector screens and lifts over the
-serial and RS-485 interface.
+serial and RS-485 interface, or via TCP network connections using RS-485-to-Ethernet converters.
 
 This python library was first implemented for XY Screens. After I was informed that the See Max
 devices use a very similar protocol support for these devices has been added.
@@ -25,6 +25,8 @@ lifts, their devices are sold around the world under various brand names.
 - Position control, move the screen/lift to any position along the way
 - Program device address on devices that support this
 - Use multiple devices on the same RS-485 interface
+- **Serial and TCP connections** - Connect via USB RS-485 adapters or RS-485-to-Ethernet converters
+- **Direct TCP support** - No need for socat or virtual serial ports when using RS-485-to-Ethernet converters
 - Synchronous and asynchronous methods
 - Uses Callbacks for asynchronous methods
 
@@ -40,10 +42,30 @@ state.
 
 ## Hardware
 
+### Serial Connection (USB RS-485)
+
 I use a cheap USB RS-485 controller to talk to the projector screen where position 5 of the RJ25
 connector is connected to D+ and position 6 to the D-.
 
 ![image](https://raw.githubusercontent.com/rrooggiieerr/xyscreens.py/main/usb-rs485.png)
+
+### Network Connection (RS-485-to-Ethernet)
+
+Alternatively, you can use an RS-485-to-Ethernet converter to connect your screen to your network.
+This eliminates the need for a direct serial connection and allows remote control over TCP/IP.
+
+
+![image](RS485-Ethernet.png)
+
+Compatible and tested Converters:
+* [ebyte NA111-E](https://www.cdebyte.com/products/NA111/4#Downloads)
+
+Configure your converter with these settings:
+- **Baud Rate**: 2400
+- **Data Bits**: 8
+- **Parity**: None
+- **Stop Bits**: 1
+- **TCP Server Mode** with your chosen port (commonly 9997)
 
 See the documentation of your specific device on how to wire yours correctly.
 
@@ -97,21 +119,110 @@ You can install the Python XY Screens library using the Python package manager P
 
 `pip3 install xyscreens`
 
+## Usage
+
+### Python API
+
+The library provides both synchronous and asynchronous methods for controlling your screen or lift.
+
+#### Creating a connection
+
+The XYScreens constructor automatically detects whether you're using a serial or TCP connection:
+
+```python
+from xyscreens import XYScreens
+
+# Serial connection
+screen = XYScreens("/dev/ttyUSB0", b"\xAA\xEE\xEE", 30, 30)
+
+# TCP connection (using RS-485-to-Ethernet converter)
+screen = XYScreens("192.168.1.100:9997", b"\xAA\xEE\xEE", 30, 30)
+```
+
+#### Synchronous usage
+
+```python
+# Move screen down for 10 seconds
+screen.down(10)
+
+# Move screen up for 15 seconds
+screen.up(15)
+
+# Stop the screen
+screen.stop()
+
+# Move to specific position (0-100, where 0 is fully closed)
+screen.set_position(50)  # Move to 50% position
+```
+
+#### Asynchronous usage
+
+```python
+import asyncio
+from xyscreens import XYScreens
+
+async def control_screen():
+    screen = XYScreens("192.168.1.100:9997", b"\xAA\xEE\xEE", 30, 30)
+
+    # Move screen down for 5 seconds, then stop, then up
+    await screen.async_down(5)
+    await screen.async_stop()
+    await screen.async_up(5)
+
+    # Move to specific position
+    await screen.async_set_position(75)
+
+# Run the async function
+asyncio.run(control_screen())
+```
+
+#### Using callbacks
+
+```python
+def screen_callback(state, position):
+    print(f"Screen state: {state}, Position: {position}%")
+
+screen = XYScreens("192.168.1.100:9997", b"\xAA\xEE\xEE", 30, 30)
+screen.add_callback(screen_callback)
+
+# Now any screen movement will trigger the callback
+screen.down(10)
+```
+
 ## `xyscreens` CLI
 
 You can use the Python XY Screens library directly from the command line to move your screen up or
 down or to stop the screen using the following syntax:
 
-Move the screen down: `python3 -m xyscreens <serial port> <address> down <duration>`  
-Stop the screen: `python3 -m xyscreens <serial port> <address> stop`  
+### Serial Connection
+Move the screen down: `python3 -m xyscreens <serial port> <address> down <duration>`
+Stop the screen: `python3 -m xyscreens <serial port> <address> stop`
 Move the screen up: `python3 -m xyscreens <serial port> <address> up <duration>`
 
-Where `<address>` is the six character hexadecimal (three bytes) address of the device. `<duration>`
-is the optional time in seconds to move the screen up or down, when given the process will wait
-till the screen is up or down and show the progress.
+### TCP Network Connection
+Move the screen down: `python3 -m xyscreens <host>:<port> <address> down <duration>`
+Stop the screen: `python3 -m xyscreens <host>:<port> <address> stop`
+Move the screen up: `python3 -m xyscreens <host>:<port> <address> up <duration>`
+
+### Parameters
+- `<serial port>`: Serial device path (e.g., `/dev/ttyUSB0`, `COM1`)
+- `<host>:<port>`: TCP endpoint (e.g., `192.168.1.100:9997`)
+- `<address>`: Six character hexadecimal (three bytes) address of the device
+- `<duration>`: Optional time in seconds to move the screen up or down
 
 For XY Screens devices the default address is `AAEEEE`, while for See Max devices the default
 address is `EEEEEE`. If you have reprogrammed the device address use the according address.
+
+### Examples
+```bash
+# Serial connection examples
+python3 -m xyscreens /dev/ttyUSB0 AAEEEE down 30
+python3 -m xyscreens COM1 EEEEEE stop
+
+# TCP connection examples
+python3 -m xyscreens 192.168.1.100:9997 AAEEEE up 25
+python3 -m xyscreens 10.0.0.50:8080 EEEEEE stop
+```
 
 ### Programming the device address
 
@@ -119,15 +230,34 @@ Some See Max projector screens and lifts which use the RS-485 interface seem to 
 the device address. This way multiple devices can be connected to the same RS-485 interface. Each
 device should have a unique address.
 
-`python3 -m xyscreens <serial port> <address> program`  
+**Serial connection:**
+`python3 -m xyscreens <serial port> <address> program`
+
+**TCP connection:**
+`python3 -m xyscreens <host>:<port> <address> program`
 
 Where `<address>` is the to be programmed three byte address.
+
+#### Examples
+```bash
+# Program address via serial connection
+python3 -m xyscreens /dev/ttyUSB0 123456 program
+
+# Program address via TCP connection
+python3 -m xyscreens 192.168.1.100:9997 123456 program
+```
 
 ### Troubleshooting
 
 You can add the `--debug` flag to any CLI command to get more details on what's going on. Like so:
 
-`python3 -m xyscreens <serial port> <address> down <duration> --debug`
+```bash
+# Debug serial connection
+python3 -m xyscreens /dev/ttyUSB0 AAEEEE down 30 --debug
+
+# Debug TCP connection
+python3 -m xyscreens 192.168.1.100:9997 AAEEEE down 30 --debug
+```
 
 ## Support my work
 
